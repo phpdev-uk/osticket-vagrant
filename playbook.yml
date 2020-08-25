@@ -1,0 +1,114 @@
+- name: osticket playbook
+  hosts: all
+  become: yes
+  become_user: root
+  vars:
+    apt_update_cache: yes
+    apt_cache_valid_time: 3600
+    download_path: /tmp/osticket
+    installation_path: /var/www/osticket
+    php_version: 7.2
+    git_repository: 'https://github.com/osTicket/osTicket'
+    database:
+      name: osticket
+      username: osticket
+      password: osticket
+      privileges: osticket.*:ALL
+    install_packages:
+      - python3-mysqldb
+      - composer
+      - curl
+      - git
+      - nginx
+      - mariadb-server
+      - mariadb-client
+      - php-fpm
+      - php-mysql
+      - php-gmp
+      - php-curl
+      - php-intl
+      - php-mbstring
+      - php-xmlrpc
+      - php-gd
+      - php-xml
+      - php-cli
+      - php-zip
+
+  tasks:
+    # Setup
+    - name: install required packages
+      apt:
+        name: "{{ install_packages }}"
+        update_cache: "{{ apt_update_cache }}"
+        cache_valid_time: "{{ apt_cache_valid_time }}"
+
+    # Database
+    - name: create database
+      mysql_db:
+        name: "{{ database.name }}"
+
+    - name: create database user
+      mysql_user:
+        name: "{{ database.username }}"
+        password: "{{ database.password }}"
+        priv: "{{ database.privileges }}"
+
+    # Web
+    - name: copy php ini overrides
+      copy:
+        src: files/php/99-local.ini
+        dest: "/etc/php/{{ php_version }}/fpm/conf.d/99-local.ini"
+        mode: 0644
+      notify: reload nginx
+
+    - name: create download directory
+      file:
+        path: "{{ download_path }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: 0755
+    
+    - name: create installation directory
+      file:
+        path: "{{ installation_path }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: 0755
+
+    - name: clone git repository
+      git:
+        repo: "{{ git_repository }}"
+        dest: "{{ download_path }}"
+
+    - name: run installation script
+      become: yes
+      become_user: www-data
+      command: "/usr/bin/php {{ download_path }}/manage.php deploy --setup {{ installation_path }}"
+      args:
+        creates: "{{ installation_path }}/bootstrap.php"
+
+    - name: set permissions on installation
+      file:
+        path: "{{ installation_path }}/"
+        state: directory
+        recurse: yes
+        owner: www-data
+        group: www-data
+        mode: u=rwX,g=rX,o=rX
+
+    - name: copy virtual host configuration
+      template:
+        src: templates/nginx/osticket.j2.conf
+        dest: /etc/nginx/sites-available/default
+        owner: www-data
+        group: www-data
+        mode: 0644
+      notify: reload nginx
+
+  handlers:
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded
