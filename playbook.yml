@@ -88,6 +88,12 @@
       command: "/usr/bin/php {{ download_path }}/manage.php deploy --setup {{ installation_path }}"
       args:
         creates: "{{ installation_path }}/bootstrap.php"
+    
+    - name: copy config file
+      copy:
+        src: "{{ installation_path }}/include/ost-sampleconfig.php"
+        dest: "{{ installation_path }}/include/ost-config.php"
+        remote_src: yes
 
     - name: set permissions on installation
       file:
